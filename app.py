@@ -323,22 +323,6 @@ else:
 
     st.title("📈 AI Quant: Profesyonel Portföy SaaS")
     st.markdown("---")
-
-    st.sidebar.title("🛠️ Yönetici Paneli")
-admin_sifre = st.sidebar.text_input("Yönetici Şifresi", type="password")
-
-# .env veya Streamlit Secrets'a ekleyeceğin gizli bir kelime (Örn: "AlperenQuant2026")
-if admin_sifre == "SeninGizliSifren": 
-    st.sidebar.success("Yönetici Girişi Başarılı!")
-    hedef_eposta = st.sidebar.text_input("Premium Yapılacak E-posta:")
-    if st.sidebar.button("Kullanıcıyı Premium Yap"):
-        conn = sqlite3.connect(os.getenv("DB_PATH", "ai_quant_saas.db"))
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET is_verified = 1, subscription_status = 'premium' WHERE email = ?", (hedef_eposta,))
-        conn.commit()
-        conn.close()
-        st.sidebar.success(f"{hedef_eposta} artık Premium!")
-
     # =====================================================================
     # 👑 YÖNETİCİ PANELİ (Sadece Alperen Onaylama Yaparken Görür)
     # =====================================================================
