@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+xgboost
+yfinance
+torch
+transformers
+scikit-learn
+python-dotenv

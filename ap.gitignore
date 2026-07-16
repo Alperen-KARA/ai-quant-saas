@@ -1,0 +1,16 @@
+# Hassas Bilgiler
+.env
+apı
+yonetici_yap.py
+
+# Veritabanı ve Yerel Veriler
+*.db
+*.sqlite3
+
+# Python Önbellek Dosyaları
+__pycache__/
+*.pyc
+
+# Sanal Ortamlar
+venv/
+.venv/
