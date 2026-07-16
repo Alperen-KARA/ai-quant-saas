@@ -1,24 +1,22 @@
 import sys
 import asyncio
+import os
+import sqlite3
+import hashlib
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import streamlit as st
 
 # =====================================================================
 # 🛠️ WINDOWS ASYNCIO / SOKET HATASI ÇÖZÜMÜ (WinError 10054 için)
 # =====================================================================
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-import streamlit as st
-import pandas as pd
-import sqlite3
-import hashlib
-import random
-import smtplib
-import os
-import sqlite3
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-from sklearn.model_selection import train_test_split
 
 # Kendi yazdığımız modülleri içeri aktarıyoruz
 from moduller.veri_toplayici import VeriToplayici
@@ -31,28 +29,36 @@ from moduller.backtest_motoru import BacktestMotoru
 # =====================================================================
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_EMAIL = os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") 
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "karaalperen0591@gmail.com")
+# Eğer ortam değişkeni (Secrets) boşsa kodun içindeki şifreyi yedek olarak kullanır:
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "umne xxrl rzhu erre")
 
-SMTP_PASSWORD = "umne xxrl rzhu erre"
-
+# =====================================================================
+# 🗄️ VERİTABANI YOLU VE YARDIMCI FONKSİYONLAR
+# =====================================================================
 DB_PATH = os.getenv("DB_PATH", "ai_quant_saas.db")
 
-def veritabanini_hazirla():
+def sifre_hashle(password):
+    """Şifreleri SHA-256 algoritmasıyla güvenli bir şekilde hashler."""
+    return hashlib.sha256(password.encode()).hexdigest()
+    def veritabanini_hazirla():
     """Uygulama ilk açıldığında tablo yapılarını otomatik kurar."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    # Kullanıcılar tablosunu oluştur
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            is_verified INTEGER DEFAULT 0,
-            verification_code TEXT,
-            subscription_status TEXT DEFAULT 'free'
-        )
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE,
+        password TEXT,
+        subscription_status TEXT DEFAULT 'free', -- 'free', 'pending', 'premium'
+        is_verified INTEGER DEFAULT 0,
+        verification_code TEXT,
+        payment_code TEXT,
+        payment_sender_name TEXT,
+        payment_sender_phone TEXT,
+        payment_months INTEGER,
+        payment_amount TEXT
+    )
     """)
     conn.commit()
     conn.close()
@@ -61,6 +67,7 @@ def veritabanini_hazirla():
 veritabanini_hazirla()
 
 def dogrulama_kodu_gonder(alici_email, kod):
+    """Yeni kayıt olan kullanıcılara HTML tasarımlı e-posta gönderir."""
     try:
         msg = MIMEMultipart()
         msg['From'] = f"AI Quant Doğrulama Servisi <{SMTP_EMAIL}>"
@@ -92,36 +99,10 @@ def dogrulama_kodu_gonder(alici_email, kod):
     except Exception as e:
         st.error(f"E-posta gönderim hatası: {e}")
         return False
-        # =====================================================================
-# 🗄️ VERİTABANI YÖNETİMİ
-# =====================================================================
-def veritabanini_hazirla():
-    conn = sqlite3.connect("ai_quant_saas.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE,
-        password TEXT,
-        subscription_status TEXT DEFAULT 'free', -- 'free', 'pending', 'premium'
-        is_verified INTEGER DEFAULT 0,
-        verification_code TEXT,
-        payment_code TEXT,
-        payment_sender_name TEXT,
-        payment_sender_phone TEXT,
-        payment_months INTEGER,
-        payment_amount TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-def sifre_hashle(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def kullanici_olustur(email, password, code):
+        def kullanici_olustur(email, password, code):
+    """Yeni kayıt olan kullanıcıyı veritabanına ekler."""
     try:
-        conn = sqlite3.connect("ai_quant_saas.db")
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO users (email, password, verification_code, is_verified) 
@@ -134,7 +115,8 @@ def kullanici_olustur(email, password, code):
         return False
 
 def kullanici_dogrula(email, code):
-    conn = sqlite3.connect("ai_quant_saas.db")
+    """Kullanıcının girdiği e-posta kodunu veritabanından doğrular."""
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE email = ? AND verification_code = ?", (email, code))
     user = cursor.fetchone()
@@ -147,11 +129,38 @@ def kullanici_dogrula(email, code):
     return False
 
 def kullanici_kontrol(email, password):
-    # EĞER GİRİŞ YAPAN SENSEN, VERİTABANINA BAKMADAN DOĞRUDAN PREMIUM YETKİSİ VERİR
-    if email == "karaalperen0591@gmail.com":
-        return {"subscription": "premium", "is_verified": 1}
+    """
+    Kullanıcı giriş kontrolünü yapar. 
+    Eğer 'karaalperen059.1@gmail.com' ve şifre doğruysa veritabanını günceller/oluşturur ve premium yetkisiyle içeri alır.
+    """
+    # 👑 ÖZEL TALEP: Yönetici Girişi Kontrolü
+    if email == "karaalperen059.1@gmail.com" and password == "Lxszm3460":
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = cursor.fetchone()
         
-    conn = sqlite3.connect("ai_quant_saas.db")
+        hashed_password = sifre_hashle(password)
+        if not user:
+            # Eğer veritabanında henüz yoksa doğrudan Premium ve onaylanmış olarak oluşturur
+            cursor.execute("""
+                INSERT INTO users (email, password, is_verified, subscription_status)
+                VALUES (?, ?, 1, 'premium')
+            """, (email, hashed_password))
+        else:
+            # Varsa şifresini ve durumunu güncel tutar
+            cursor.execute("""
+                UPDATE users 
+                SET password = ?, is_verified = 1, subscription_status = 'premium'
+                WHERE email = ?
+            """, (hashed_password, email))
+            
+        conn.commit()
+        conn.close()
+        return {"subscription": "premium", "is_verified": 1}
+    
+    # 2. Normal Kullanıcı Giriş Kontrolü
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT subscription_status, is_verified 
@@ -165,14 +174,16 @@ def kullanici_kontrol(email, password):
     return None
 
 def abonelik_guncelle(email, status):
-    conn = sqlite3.connect("ai_quant_saas.db")
+    """Yönetici onayından sonra abonelik statüsünü günceller."""
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET subscription_status = ? WHERE email = ?", (status, email))
     conn.commit()
     conn.close()
 
 def odeme_bildir(email, code, name, phone, months, amount):
-    conn = sqlite3.connect("ai_quant_saas.db")
+    """Ödeme yapan 'free' kullanıcının durumunu 'pending' (onay bekliyor) yapar."""
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE users 
@@ -188,7 +199,8 @@ def odeme_bildir(email, code, name, phone, months, amount):
     conn.close()
 
 def bekleyen_odemeleri_getir():
-    conn = sqlite3.connect("ai_quant_saas.db")
+    """Yöneticinin görebilmesi için onay bekleyen ödemeleri listeler."""
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT email, payment_code, payment_sender_name, payment_sender_phone, payment_months, payment_amount 
@@ -198,10 +210,8 @@ def bekleyen_odemeleri_getir():
     rows = cursor.fetchall()
     conn.close()
     return rows
-
-# Sayfa Yapılandırması
+    # Sayfa Yapılandırması
 st.set_page_config(page_title="AI Quant SaaS", page_icon="📈", layout="wide")
-veritabanini_hazirla()
 
 # Session State Durumları
 if "user" not in st.session_state:
@@ -292,21 +302,16 @@ if st.session_state.user is None:
                             else:
                                 st.session_state.generated_code = None
                                 st.error("Doğrulama e-postası gönderilemedi. Lütfen SMTP ayarlarınızı kontrol edin.")
-
-                                # =====================================================================
-# 👑 GİRİŞ YAPILMIŞSA AÇILAN PROFESYONEL PORTFÖY PANELİ
-# =====================================================================
-else:
+                                else:
     # Sol Panel Kontrolleri
     st.sidebar.title("👤 Profilim")
     st.sidebar.write(f"E-posta: **{st.session_state.user}**")
     st.sidebar.write(f"Üyelik Seviyesi: **{st.session_state.subscription.upper()}**")
-    
     st.sidebar.markdown("---")
     
-    # 👑 SADECE ALPEREN KARA'YA ÖZEL GİZLİ YÖNETİCİ PANELİ BUTONU
+    # 👑 SADECE YÖNETİCİ E-POSTASINA ÖZEL GÖRÜNEN BUTON
     admin_aktif = False
-    if st.session_state.user == "karaalperen0591@gmail.com":
+    if st.session_state.user == "karaalperen059.1@gmail.com":
         st.sidebar.subheader("👑 Sistem Yöneticisi")
         admin_aktif = st.sidebar.checkbox("Yönetici Panelini Aç", value=False)
         st.sidebar.markdown("---")
@@ -323,10 +328,11 @@ else:
 
     st.title("📈 AI Quant: Profesyonel Portföy SaaS")
     st.markdown("---")
+
     # =====================================================================
-    # 👑 YÖNETİCİ PANELİ (Sadece Alperen Onaylama Yaparken Görür)
+    # 👑 YÖNETİCİ PANELİ (Alperen giriş yaptığında bu paneli açabilir)
     # =====================================================================
-    if admin_aktif and st.session_state.user == "karaalperen0591@gmail.com":
+    if admin_aktif and st.session_state.user == "karaalperen059.1@gmail.com":
         st.subheader("🔑 Bekleyen Premium Ödeme Onayları")
         st.write("Banka hesabına gelen havaleleri buradaki **Açıklama Kodu** ile eşleştirip onaylayabilirsin:")
         
@@ -364,8 +370,7 @@ else:
             </div>
             """, unsafe_allow_html=True)
             if st.button("Durumu Güncelle / Sayfayı Yenile", type="primary", use_container_width=True):
-                # Veritabanındaki güncel durumu kontrol et
-                conn = sqlite3.connect("ai_quant_saas.db")
+                conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 cursor.execute("SELECT subscription_status FROM users WHERE email = ?", (st.session_state.user,))
                 guncel_durum = cursor.fetchone()[0]
@@ -410,7 +415,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Form Alanları
             st.markdown("<h4 style='color: #1E3A8A;'>👤 Kişisel Bilgiler</h4>", unsafe_allow_html=True)
             p_isim = st.text_input("Ad Soyad", placeholder="Ödemeyi gönderen kişinin adı")
             p_tel = st.text_input("Telefon Numarası", placeholder="05xx xxx xx xx")
@@ -422,7 +426,6 @@ else:
             toplam_tutar_usd = secilen_ay * 10
             toplam_tutar_tl = secilen_ay * 340
             
-            # Kullanıcıya özel benzersiz bir ödeme açıklama kodu üretip session'da tutuyoruz
             if "payment_track_code" not in st.session_state:
                 st.session_state.payment_track_code = f"AQ-{random.randint(10000, 99999)}"
                 
