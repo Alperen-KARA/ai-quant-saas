@@ -30,7 +30,6 @@ from moduller.backtest_motoru import BacktestMotoru
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_EMAIL = os.getenv("SMTP_EMAIL", "karaalperen0591@gmail.com")
-# Eğer ortam değişkeni (Secrets) boşsa kodun içindeki şifreyi yedek olarak kullanır:
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "umne xxrl rzhu erre")
 
 # =====================================================================
@@ -63,7 +62,7 @@ def sifre_hashle(password):
     conn.commit()
     conn.close()
 
-# Uygulama başlarken veritabanı kontrolü yap
+# Uygulama başlarken veritabanı yapısını kontrol et ve eksikse kur
 veritabanini_hazirla()
 
 def dogrulama_kodu_gonder(alici_email, kod):
@@ -71,7 +70,7 @@ def dogrulama_kodu_gonder(alici_email, kod):
     try:
         msg = MIMEMultipart()
         msg['From'] = f"AI Quant Doğrulama Servisi <{SMTP_EMAIL}>"
-        msg['To'] = alici_email
+        msg['To'] = idx_alici := alici_email
         msg['Subject'] = f"AI Quant Doğrulama Kodunuz: {kod}"
 
         html = f"""
@@ -131,9 +130,9 @@ def kullanici_dogrula(email, code):
 def kullanici_kontrol(email, password):
     """
     Kullanıcı giriş kontrolünü yapar. 
-    Eğer 'karaalperen059.1@gmail.com' ve şifre doğruysa veritabanını günceller/oluşturur ve premium yetkisiyle içeri alır.
+    Eğer yönetici bilgileri girildiyse veritabanına bakmadan doğrudan premium yetkisi tanımlar.
     """
-    # 👑 ÖZEL TALEP: Yönetici Girişi Kontrolü
+    # 👑 YÖNETİCİ GİRİŞİ KONTROLÜ
     if email == "karaalperen059.1@gmail.com" and password == "Lxszm3460":
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -142,13 +141,13 @@ def kullanici_kontrol(email, password):
         
         hashed_password = sifre_hashle(password)
         if not user:
-            # Eğer veritabanında henüz yoksa doğrudan Premium ve onaylanmış olarak oluşturur
+            # Yönetici kaydı yoksa doğrudan Premium ve onaylı olarak oluşturur
             cursor.execute("""
                 INSERT INTO users (email, password, is_verified, subscription_status)
                 VALUES (?, ?, 1, 'premium')
             """, (email, hashed_password))
         else:
-            # Varsa şifresini ve durumunu güncel tutar
+            # Varsa bilgilerini günceller
             cursor.execute("""
                 UPDATE users 
                 SET password = ?, is_verified = 1, subscription_status = 'premium'
@@ -159,7 +158,7 @@ def kullanici_kontrol(email, password):
         conn.close()
         return {"subscription": "premium", "is_verified": 1}
     
-    # 2. Normal Kullanıcı Giriş Kontrolü
+    # NORMAL KULLANICI KONTROLÜ
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -174,7 +173,7 @@ def kullanici_kontrol(email, password):
     return None
 
 def abonelik_guncelle(email, status):
-    """Yönetici onayından sonra abonelik statüsünü günceller."""
+    """Yönetici onayından sonra kullanıcının abonelik statüsünü günceller."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET subscription_status = ? WHERE email = ?", (status, email))
@@ -199,7 +198,7 @@ def odeme_bildir(email, code, name, phone, months, amount):
     conn.close()
 
 def bekleyen_odemeleri_getir():
-    """Yöneticinin görebilmesi için onay bekleyen ödemeleri listeler."""
+    """Yöneticinin görebilmesi için onay bekleyen tüm ödemeleri listeler."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -236,7 +235,7 @@ if st.session_state.user is None:
         
         if st.session_state.temp_email:
             st.subheader("📬 E-posta Adresinizi Doğrulayın")
-            st.info(f"**{st.session_state.temp_email}** adresine 6 haneli bir kod gönderdik. Lütfen aşağıdaki alana giriniz. Spam klasörüne bakmayı unutmayınız.")
+            st.info(f"**{st.session_state.temp_email}** adresine 6 haneli bir doğrulama kodu gönderdik. Lütfen aşağıdaki alana giriniz.")
             
             girilen_kod = st.text_input("6 Haneli Onay Kodu", max_chars=6)
             
@@ -309,7 +308,7 @@ if st.session_state.user is None:
     st.sidebar.write(f"Üyelik Seviyesi: **{st.session_state.subscription.upper()}**")
     st.sidebar.markdown("---")
     
-    # 👑 SADECE YÖNETİCİ E-POSTASINA ÖZEL GÖRÜNEN BUTON
+    # 👑 SADECE ALPEREN KARA'YA ÖZEL GÖRÜNEN BUTON
     admin_aktif = False
     if st.session_state.user == "karaalperen059.1@gmail.com":
         st.sidebar.subheader("👑 Sistem Yöneticisi")
